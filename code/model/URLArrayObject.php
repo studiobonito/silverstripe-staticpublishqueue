@@ -46,15 +46,8 @@ class URLArrayObject extends ArrayObject {
 			}
 
 			//only add URLs of a certain length and only add URLs not already added
-			if (!empty($URLSegment) &&
-			    strlen($URLSegment) > 0 &&
-			    !isset($urlsAlreadyProcessed[$URLSegment]) &&
-				substr($URLSegment,0,4) != "http") {    //URLs isn't to an external site
-
-				//check to make sure this page isn't excluded from the static cache
-				if (!self::exclude_from_cache($URLSegment)) {
-					self::get_instance()->append(array($priority, $URLSegment));
-				}
+			if (self::url_should_be_added($URLSegment, $urlsAlreadyProcessed)) {    
+				self::get_instance()->append(array($priority, $URLSegment));
 				$urlsAlreadyProcessed[$URLSegment] = true;  //set as already processed
 			}
 		}
@@ -64,7 +57,44 @@ class URLArrayObject extends ArrayObject {
 			self::get_instance()->insertIntoDB();
 		}
 	}
+	
+	/**
+	 * Checks if an url should added to the queue
+	 * 
+	 * @param string $url
+	 * @param array $urlsAlreadyProcessed
+	 * @return boolean
+	 */
+	protected static function url_should_be_added($url, $urlsAlreadyProcessed) {
+		if(empty($url)) {
+			return false;
+		}
+		
+		if(strlen($url) < 1 ) {
+			return false;
+		}
+		
+		if(isset($urlsAlreadyProcessed[$url])) {
+			return false;
+		}
+		
+		if(self::exclude_from_cache($url)) {
+			return false;
+		}
 
+		// if the url points to another domain
+		if(substr($url,0,4) == "http") {
+			return false;
+		}
+		
+		return true;
+	}
+
+	/**
+	 * 
+	 * @param string $url
+	 * @return boolean
+	 */
 	protected static function exclude_from_cache($url) {
 		$excluded = false;
 
