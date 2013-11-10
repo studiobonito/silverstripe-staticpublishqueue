@@ -83,7 +83,7 @@ class URLArrayObject extends ArrayObject {
 		}
 
 		// if the url points to another domain
-		if(substr($url,0,4) == "http") {
+		if(substr($url,0,4) == "http" && !Config::inst()->get('FilesystemPublisher', 'domain_based_caching')) {
 			return false;
 		}
 		
