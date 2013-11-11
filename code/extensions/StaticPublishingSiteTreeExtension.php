@@ -143,9 +143,13 @@ class StaticPublishingSiteTreeExtension extends DataExtension {
 	 * @return array Of relative URLs
 	 */
 	public function subPagesToCache() {
-		// Add redirector page (if required) or just include the current page
-		if($this->owner instanceof RedirectorPage) $link = $this->owner->regularLink();
-		else $link = $this->owner->Link();  //higher priority for the actual page, not others
+		if($this->owner instanceof RedirectorPage) {
+			$link = $this->owner->regularLink();
+		} elseif(Config::inst()->get('FilesystemPublisher', 'domain_based_caching')) {
+			$link = $this->owner->AbsoluteLink();
+		} else {
+			$link = $this->owner->Link();
+		}
 		
 		$urls = array($link => 60);
 
