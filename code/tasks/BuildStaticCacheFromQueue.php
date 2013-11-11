@@ -49,7 +49,7 @@ class BuildStaticCacheFromQueue extends BuildTask {
 	 *
 	 * @var boolean
 	 */
-	protected $verbose = false;
+	protected $verbose = true;
 	
 	/**
 	 * This tells us if the task is running in a daemon mode.
@@ -70,34 +70,34 @@ class BuildStaticCacheFromQueue extends BuildTask {
 	 * @var $request SS_HTTPRequest
 	 */
 	public function run($request) {
-		if (!defined('SS_SLAVE')) { //don't run any build task if we are the slave server
-			if($request->getVar('verbose') === 0) {
-				$this->verbose = false;
-			} else {    //verbose logging is the default, unless we specify otherwise
-				$this->verbose = true;
-			}
+		//don't run any build task if we are the slave server
+		if(defined('SS_SLAVE')) { 
+			echo "Server is SS_SLAVE, not running build task (edit the _ss_environment file to make this server the master)";
+		}
 
-			if($info = $this->anotherInstanceRunning(30)) {
-				if($this->verbose) {
-					echo 'Another task is running with pid '.$info[0].' last heard of '.$info[1].' seconds ago.'.$this->nl();
-				}
-				return false;
-			}
+		//verbose logging is the default, unless we specify otherwise
+		if($request->getVar('verbose') === 0) {
+			$this->verbose = false;
+		}
 
-			if($request->getVar('daemon')) {
-				$this->daemon = true;
-				while($this->buildCache() && $this->hasRunLessThan(590)) {
-					usleep(200000); //sleep for 200 ms
-					$this->runningTime();
-					$this->summaryObject = null;
-				}
-			} else {
-				if($this->buildCache()) {
-					$this->removePid();
-				}
+		if($info = $this->anotherInstanceRunning(30)) {
+			if($this->verbose) {
+				echo 'Another task is running with pid '.$info[0].', last heard of '.$info[1].' seconds ago.'.$this->nl();
+			}
+			return false;
+		}
+
+		if($request->getVar('daemon')) {
+			$this->daemon = true;
+			while($this->buildCache() && $this->hasRunLessThan(590)) {
+				usleep(200000); //sleep for 200 ms
+				$this->runningTime();
+				$this->summaryObject = null;
 			}
 		} else {
-			echo "Server is SS_SLAVE, not running build task (edit the _ss_environment file to make this server the master)";
+			if($this->buildCache()) {
+				$this->removePid();
+			}
 		}
 	}
 	
@@ -349,6 +349,10 @@ EOT;
 		return (Director::is_cli())?PHP_EOL:'<br>';
 	}
 	
+	/**
+	 * 
+	 * @return boolean
+	 */
 	private function isDaemon() {
 		return $this->daemon;
 	}
