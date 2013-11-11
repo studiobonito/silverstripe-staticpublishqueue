@@ -1,15 +1,29 @@
 <?php
 class StaticPublishingSiteTreeExtension extends DataExtension {
 
-	//include all ancestor pages in static publishing queue build, or just one level of parent
-	public static $includeAncestors = true;
+	/**
+	 * include all ancestor pages in static publishing queue build, or just one level of parent
+	 *
+	 * @var boolean
+	 */
+	public static $include_ancestors = true;
 
-	function onAfterPublish() {
+	/**
+	 * Extension hook
+	 * 
+	 */
+	public function onAfterPublish() {
 		$urls = $this->pagesAffected();
-		if(!empty($urls)) URLArrayObject::add_urls($urls);
+		if(!empty($urls)) {
+			URLArrayObject::add_urls($urls);
+		}
 	}
 
-	function onAfterUnpublish() {
+	/**
+	 * Extension hook
+	 * 
+	 */
+	public function onAfterUnpublish() {
 		//get all pages that should be removed
 		$removePages = $this->owner->pagesToRemoveAfterUnpublish();
 		$updateURLs = array();  //urls to republish
@@ -24,7 +38,7 @@ class StaticPublishingSiteTreeExtension extends DataExtension {
 
 		increase_time_limit_to();
 		increase_memory_limit_to();
-		singleton("SiteTree")->unpublishPagesAndStaleCopies($removeURLs); //remove those pages (right now)
+		$this->deleteAllCacheFiles($removeURLs); //remove those pages (right now)
 
 		if(!empty($updateURLs)) URLArrayObject::add_urls($updateURLs);
 	}
@@ -32,28 +46,37 @@ class StaticPublishingSiteTreeExtension extends DataExtension {
 	/**
 	 * Removes the unpublished page's static cache file as well as its 'stale.html' copy.
 	 * Copied from: FilesystemPublisher->unpublishPages($urls)
+	 * 
+	 * @param array $urls 
 	 */
-	public function unpublishPagesAndStaleCopies($urls) {
+	public function deleteAllCacheFiles($urls) {
 		// Detect a numerically indexed arrays
 		if (is_numeric(join('', array_keys($urls)))) $urls = $this->owner->urlsToPaths($urls);
 
 		$cacheBaseDir = $this->owner->getDestDir();
 
 		foreach($urls as $url => $path) {
+			// Delete the cache file
 			if (file_exists($cacheBaseDir.'/'.$path)) {
 				@unlink($cacheBaseDir.'/'.$path);
 			}
+			// Delete the .stale cache file
 			$lastDot = strrpos($path, '.'); //find last dot
-			if ($lastDot !== false) {
-				$stalePath = substr($path, 0, $lastDot) . '.stale' . substr($path, $lastDot);
-				if (file_exists($cacheBaseDir.'/'.$stalePath)) {
-					@unlink($cacheBaseDir.'/'.$stalePath);
-				}
+			if($lastDot === false) {
+				continue;
+			}
+			$stalePath = substr($path, 0, $lastDot) . '.stale' . substr($path, $lastDot);
+			if (file_exists($cacheBaseDir.'/'.$stalePath)) {
+				@unlink($cacheBaseDir.'/'.$stalePath);
 			}
 		}
 	}
 
-	function pagesToRemoveAfterUnpublish() {
+	/**
+	 * 
+	 * @return array - an array of SiteTree objects
+	 */
+	public function pagesToRemoveAfterUnpublish() {
 		$pages = array();
 		$pages[] = $this->owner;
 
@@ -78,7 +101,12 @@ class StaticPublishingSiteTreeExtension extends DataExtension {
 		return $pages;
 	}
 
-	function pagesAffected($unpublish = false) {
+	/**
+	 * 
+	 * @param boolean $unpublish
+	 * @return array
+	 */
+	public function pagesAffected($unpublish = false) {
 		$urls = array();
 		if ($this->owner->hasMethod('pagesAffectedByChanges')) {
 			$urls = $this->owner->pagesAffectedByChanges();
@@ -87,19 +115,18 @@ class StaticPublishingSiteTreeExtension extends DataExtension {
 		$oldMode = Versioned::get_reading_mode();
 		Versioned::reading_stage('Live');
 
-		//the the live version of the current page
+		// We no longer have access to the live page, so can just try to grab the ParentID.
 		if ($unpublish) {
-			//We no longer have access to the live page, so can just try to grab the ParentID.
-			$thisPage = SiteTree::get()->byID($this->owner->ParentID);
+			$pageToCache = SiteTree::get()->byID($this->owner->ParentID);
 		} else {
-			$thisPage = SiteTree::get()->byID($this->owner->ID);
+			$pageToCache = SiteTree::get()->byID($this->owner->ID);
 		}
 
-		if ($thisPage) {
-			//include any related pages (redirector pages and virtual pages)
-			$urls = array_merge((array)$urls, (array)$thisPage->subPagesToCache());
-			if($thisPage instanceof RedirectorPage){
-				$urls = array_merge((array)$urls, (array)$thisPage->regularLink());
+		if ($pageToCache) {
+			// include any related pages (redirector pages and virtual pages)
+			$urls = array_merge((array)$urls, (array)$pageToCache->subPagesToCache());
+			if($pageToCache instanceof RedirectorPage) {
+				$urls = array_merge((array)$urls, (array)$pageToCache->regularLink());
 			}
 		}
 
@@ -115,17 +142,17 @@ class StaticPublishingSiteTreeExtension extends DataExtension {
 	 *
 	 * @return array Of relative URLs
 	 */
-	function subPagesToCache() {
-		$urls = array();
-
+	public function subPagesToCache() {
 		// Add redirector page (if required) or just include the current page
-		if($this->owner instanceof RedirectorPage) $urls[$this->owner->regularLink()] = 60;
-		else $urls[$this->owner->Link()] = 60;  //higher priority for the actual page, not others
+		if($this->owner instanceof RedirectorPage) $link = $this->owner->regularLink();
+		else $link = $this->owner->Link();  //higher priority for the actual page, not others
+		
+		$urls = array($link => 60);
 
-		//include the parent and the parent's parents, etc
+		// Include the parent and the parent's parents, etc
 		$parent = $this->owner->Parent();
 		if(!empty($parent) && $parent->ID > 0) {
-			if (self::$includeAncestors) {
+			if(self::$include_ancestors) {
 				$urls = array_merge((array)$urls, (array)$parent->subPagesToCache());
 			} else {
 				$urls = array_merge((array)$urls, (array)$parent->Link());
@@ -137,11 +164,13 @@ class StaticPublishingSiteTreeExtension extends DataExtension {
 		if ($virtualPages->Count() > 0) {
 			foreach($virtualPages as $virtualPage) {
 				$urls = array_merge((array)$urls, (array)$virtualPage->subPagesToCache());
-				if($p = $virtualPage->Parent) $urls = array_merge((array)$urls, (array)$p->subPagesToCache());
+				if($p = $virtualPage->Parent) {
+					$urls = array_merge((array)$urls, (array)$p->subPagesToCache());
+				}
 			}
 		}
 
-		// Including RedirectorPage
+		// Include RedirectorPages that links to this page
 		$redirectorPages = RedirectorPage::get()->filter(array('LinkToID' => $this->owner->ID));
 		if($redirectorPages->Count() > 0) {
 			foreach($redirectorPages as $redirectorPage) {
@@ -157,9 +186,10 @@ class StaticPublishingSiteTreeExtension extends DataExtension {
 	/**
 	 * Overriding the static publisher's default functionality to run our on unpublishing logic. This needs to be
 	 * here to satisfy StaticPublisher's method call
+	 * 
 	 * @return array
 	 */
-	function allPagesToCache() {
+	public function allPagesToCache() {
 		if (method_exists($this->owner,'allPagesToCache')) {
 			return $this->owner->allPagesToCache();
 		} else {
