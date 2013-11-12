@@ -29,8 +29,17 @@ class StaticPublishingSiteTreeExtension extends DataExtension {
 		$updateURLs = array();  //urls to republish
 		$removeURLs = array();  //urls to delete the static cache from
 		foreach($removePages as $page) {
-			if ($page instanceof RedirectorPage) $removeURLs[] = $page->regularLink();
-			else $removeURLs[] = $page->Link();
+			if($page instanceof RedirectorPage) {
+				$link = $page->regularLink();
+			} elseif(Config::inst()->get('FilesystemPublisher', 'domain_based_caching') && class_exists('Subsite')) {
+				$link = $page->alternateAbsoluteLink();
+			} elseif(Config::inst()->get('FilesystemPublisher', 'domain_based_caching')) {
+				$link = $page->AbsoluteLink();
+			} else {
+				$link = $page->Link();
+			}
+			
+			$removeURLs[] = $link;
 
 			//and update any pages that might have been linking to those pages
 			$updateURLs = array_merge((array)$updateURLs, (array)$page->pagesAffected(true));
@@ -145,11 +154,14 @@ class StaticPublishingSiteTreeExtension extends DataExtension {
 	public function subPagesToCache() {
 		if($this->owner instanceof RedirectorPage) {
 			$link = $this->owner->regularLink();
+		} elseif(Config::inst()->get('FilesystemPublisher', 'domain_based_caching') && class_exists('Subsite')) {
+			$link = $this->owner->alternateAbsoluteLink();
 		} elseif(Config::inst()->get('FilesystemPublisher', 'domain_based_caching')) {
 			$link = $this->owner->AbsoluteLink();
 		} else {
 			$link = $this->owner->Link();
 		}
+		
 		
 		$urls = array($link => 60);
 
