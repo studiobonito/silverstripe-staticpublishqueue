@@ -7,14 +7,19 @@
 class StaticPagesQueueControllerTest extends SapphireTest {
 
 	static $fixture_file = "staticpublishqueue/tests/Base.yml";
+	
+	protected $orig = array();
 
 	public function setUp() {
 		parent::setUp();
+		$this->orig['domain_based_caching'] = Config::inst()->get('FilesystemPublisher', 'domain_based_caching');
+		Config::inst()->update('FilesystemPublisher', 'domain_based_caching', false);
 		StaticPagesQueue::realtime(true);
 	}
 
 	public function tearDown() {
 		parent::tearDown();
+		Config::inst()->update('FilesystemPublisher', 'domain_based_caching', $this->orig['domain_based_caching']);
 		self::empty_temp_db();
 	}
 
