@@ -63,6 +63,118 @@ class SiteTreePublishingEngineTest extends SapphireTest {
 
 	}
 
+	function testUnpublishPagesAndStaleCopiesNoObject() {
+		$toDelete = array('/toDelete'=>10);
+
+		$stub = $this->getMock(
+			'SiteTreePublishingEngineTest_StaticPublishingTrigger',
+			array('urlsToPaths', 'deleteCacheFile')
+		);
+		$stub->expects($this->any())
+			->method('urlsToPaths')
+			->will($this->returnValue(array('toDelete'=>'toDelete.html')));
+
+		$stub->expects($this->any())
+			->method('deleteCacheFile')
+			->will($this->onConsecutiveCalls(
+				'toDelete.html',
+				'toDelete.stale.html')
+			);
+		$stub->unpublishPagesAndStaleCopies($toDelete);
+
+	}
+
+	function testUnpublishPagesAndStaleCopiesForMainSite() {
+		$toDelete = array('/toDelete?_ID=1&_ClassName=SiteTreePublishingEngineTest_StaticallyPublishable'=>10);
+		Config::inst()->nest();
+		Config::inst()->update('FilesystemPublisher', 'static_base_url', 'http://foo/bar');
+		Config::inst()->update('Director', 'alternative_base_url', 'http://foo/bar');
+
+		$page = $this->getMock('SiteTreePublishingEngineTest_StaticallyPublishable');
+		$page->SubsiteID = 0;
+
+		$urlArrayObjectClass = $this->getMockClass('URLArrayObject', array('get_object'));
+		Injector::inst()->registerNamedService('URLArrayObject', new $urlArrayObjectClass);
+		$urlArrayObjectClass::staticExpects($this->any())
+			->method('get_object')
+			->will($this->returnValue(
+				$page
+			));
+
+		$stub = $this->getMock(
+			'SiteTreePublishingEngineTest_StaticPublishingTrigger',
+			array('urlsToPaths', 'deleteCacheFile')
+		);
+		$stub->expects($this->any())
+			->method('urlsToPaths')
+			->will($this->returnValue(array('toDelete'=>'toDelete.html')));
+
+		$stub->expects($this->any())
+			->method('deleteCacheFile')
+			->will($this->onConsecutiveCalls(
+				'http://foo/bar/toDelete.html',
+				'http://foo/bar/toDelete.stale.html')
+			);
+		$stub->unpublishPagesAndStaleCopies($toDelete);
+
+		Config::inst()->unnest();
+	}
+
+	function testUnpublishPagesAndStaleCopiesForSubsite() {
+		$toDelete = array('/toDelete?_ID=1&_ClassName=SiteTreePublishingEngineTest_StaticallyPublishable'=>10);
+		Config::inst()->nest();
+		Config::inst()->update('FilesystemPublisher', 'static_base_url', 'http://foo/bar');
+		Config::inst()->update('Director', 'alternative_base_url', 'http://foo/bar');
+
+		// Mock a set of objects pretending to support Subsites.
+		$domain1 = $this->getMock('SubsiteDomain');
+		$domain1->Domain = 'subiste1.domain.org';
+		$domain2 = $this->getMock('SubsiteDomain');
+		$domain2->Domain = 'subiste2.domain.org';
+
+		$domains = Object::create('ArrayList', array($domain1, $domain2));
+
+		$subsite = $this->getMock('Subsite');
+		$subsite->expects($this->any())
+			->method('Domains')
+			->will($this->returnValue($domains));
+
+		$page = $this->getMock('SiteTreePublishingEngineTest_StaticallyPublishable');
+		$page->SubsiteID = 1;
+		$page->expects($this->any())
+			->method('Subsite')
+			->will($this->returnValue(
+				$subsite
+			));
+
+		// Mock statics.
+		$urlArrayObjectClass = $this->getMockClass('URLArrayObject', array('get_object'));
+		Injector::inst()->registerNamedService('URLArrayObject', new $urlArrayObjectClass);
+		$urlArrayObjectClass::staticExpects($this->any())
+			->method('get_object')
+			->will($this->returnValue($page));
+
+		// Excercise the function.
+		$stub = $this->getMock(
+			'SiteTreePublishingEngineTest_StaticPublishingTrigger',
+			array('urlsToPaths', 'deleteCacheFile')
+		);
+		$stub->expects($this->any())
+			->method('urlsToPaths')
+			->will($this->returnValue(array('toDelete'=>'toDelete.html')));
+
+		$stub->expects($this->any())
+			->method('deleteCacheFile')
+			->will($this->onConsecutiveCalls(
+				'http://subsite1.domain.org/bar/toDelete.html',
+				'http://subsite1.domain.org/bar/toDelete.stale.html',
+				'http://subsite2.domain.org/bar/toDelete.html',
+				'http://subsite2.domain.org/bar/toDelete.stale.html'
+			));
+		$stub->unpublishPagesAndStaleCopies($toDelete);
+
+		Config::inst()->unnest();
+	}
 }
 
 class SiteTreePublishingEngineTest_StaticallyPublishable extends SiteTree implements TestOnly, StaticallyPublishable {

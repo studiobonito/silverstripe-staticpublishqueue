@@ -121,28 +121,80 @@ class SiteTreePublishingEngine extends DataExtension {
 	}
 
 	/**
-	 * Removes the unpublished page's static cache file as well as its 'stale.html' copy.
-	 * Copied from: FilesystemPublisher->unpublishPages($urls)
+	 * Delete cache file, if exists.
 	 *
-	 * TODO: doesn't work for subsites - does not respect domain_based_caching.
+	 * @param string Path of the file to delete within the cache dir.
+	 */
+	public function deleteCacheFile($path) {
+		$cacheBaseDir = $this->owner->getDestDir();
+		if (file_exists($cacheBaseDir.'/'.$path)) {
+			@unlink($cacheBaseDir.'/'.$path);
+		}
+	}
+
+	/**
+	 * Removes the unpublished page's static cache file as well as its 'stale.html' copy.
+	 *
+	 * This function is subsite-aware: these files could either sit in the top-level cache (no subsites),
+	 * or sit in the subdirectories (main site and subsites).
+	 *
+	 * See BuildStaticCacheFromQueue::createCachedFiles for similar subsite-specific conditional handling.
 	 *
 	 * @param $urls array associative array of url => priority
 	 */
 	public function unpublishPagesAndStaleCopies($urls) {
-		$urls = $this->owner->urlsToPaths(array_keys($urls));
+		// Inject static objects.
+		$urlArrayObject = Injector::inst()->get('URLArrayObject');
+		$director = Injector::inst()->get('Director');
 
-		$cacheBaseDir = $this->owner->getDestDir();
+		$paths = array();
+		foreach($urls as $url => $priority) {
+			$obj = $urlArrayObject::get_object($url);
 
-		foreach($urls as $url => $path) {
-			if (file_exists($cacheBaseDir.'/'.$path)) {
-				@unlink($cacheBaseDir.'/'.$path);
+			if (!$obj || !$obj->hasExtension('SiteTreeSubsites')) {
+				// Normal processing for files directly in the cache folder.
+				$paths = array_merge($paths, $this->owner->urlsToPaths(array($url)));
+
+			} else {
+				// Subsites support detected: figure out all files to delete in subdirectories.
+
+				Config::inst()->nest();
+
+				// Subsite page requested. Change behaviour to publish into directory.
+				Config::inst()->update('FilesystemPublisher', 'domain_based_caching', true);
+
+				// Pop the base-url segment from the url.
+				if (strpos($url, '/')===0) $cleanUrl = $director::makeRelative($url);
+				else $cleanUrl = $director::makeRelative('/' . $url);
+
+				if ($obj->SubsiteID==0) {
+					// Main site page - but publishing into subdirectory.
+					$staticBaseUrl = Config::inst()->get('FilesystemPublisher', 'static_base_url');
+					$paths = array_merge($paths, $this->owner->urlsToPaths(array($staticBaseUrl . '/' . $cleanUrl)));
+				} else {
+					// Subsite page. Generate all domain variants registered with the subsite.
+					$subsite = $obj->Subsite();
+					foreach($subsite->Domains() as $domain) {
+						$paths = array_merge($paths, $this->owner->urlsToPaths(
+							array('http://'.$domain->Domain . $director::baseURL() . $cleanUrl)
+						));
+					}
+				}
+
+				Config::inst()->unnest();
 			}
+
+		}
+
+		foreach($paths as $url => $path) {
+			// Delete the master file.
+			$this->owner->deleteCacheFile($path);
+
+			// Delete the "stale" file.
 			$lastDot = strrpos($path, '.'); //find last dot
 			if ($lastDot !== false) {
 				$stalePath = substr($path, 0, $lastDot) . '.stale' . substr($path, $lastDot);
-				if (file_exists($cacheBaseDir.'/'.$stalePath)) {
-					@unlink($cacheBaseDir.'/'.$stalePath);
-				}
+				$this->owner->deleteCacheFile($stalePath);
 			}
 		}
 	}
